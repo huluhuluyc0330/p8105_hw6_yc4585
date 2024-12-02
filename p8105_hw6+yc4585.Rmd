@@ -1,0 +1,208 @@
+---
+title: "p8105_hw6_yc4585"
+output: html_document
+date: "2024-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(broom)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(modelr)
+```
+
+# Problem2
+## Import and clean data
+```{r}
+omit_cities <- c("Dallas, TX", "Phoenix, AZ", 
+                 "Kansas City, MO", "Tulsa, AL")
+
+
+homi_data <- read_csv("../homicide-data.csv",na = c("", "NA", "Unknown")) |> 
+  mutate(
+    city_state = paste(city, state, sep = ", "),
+    victim_age = as.numeric(victim_age), ##how to deal with NA
+    solved = case_when(
+      str_detect(disposition, "Closed by arrest") ~ 1,  # Case solved by arrest
+      str_detect(disposition, "Closed without arrest") ~ 1,  # Case solved without arrest
+      str_detect(disposition, "Open/No arrest") ~ 0,  # Case unsolved
+      TRUE ~ NA_real_  # Handle cases with NA or unexpected disposition values
+    )
+  ) |> 
+  filter(
+    !city_state %in% c("Dallas, TX", "Phoenix, AZ",
+                       "Kansas City, MO", "Tulsa, AL"),
+    victim_race %in% c("White", "Black"),
+
+  )
+```
+## Logistic regression
+```{r}
+md_data <- homi_data |> 
+  filter(city_state == "Baltimore, MD")
+
+model <- glm(
+  solved ~ victim_age + victim_sex + victim_race,
+  data = md_data,
+  family = binomial
+) |>
+  broom::tidy() |>
+  mutate(
+    OR = exp(estimate),
+    ci_lower = exp(estimate - 1.96 * std.error), 
+    ci_upper = exp(estimate + 1.96 * std.error)
+  )
+
+
+male_vs_female = model |> 
+  filter(term == "victim_sexMale") |> 
+  select(term,OR,ci_lower,ci_upper) |>
+  knitr::kable(digits = 3)
+
+print(male_vs_female)
+```
+## Log regression for each city
+```{r}
+city_models <- homi_data |> 
+  nest(data=-city_state) |> 
+  mutate(
+    model = map(data, ~ glm(
+      solved ~ victim_age + victim_sex + victim_race, 
+      data = .x, 
+      family = binomial
+    )), 
+    tidy_model = map(model, broom::tidy)) |>
+  select(-data, -model) |>  
+  unnest(tidy_model) |>  
+  filter(term == "victim_sexMale") |>  
+  mutate(
+    OR = exp(estimate),
+    ci_lower = exp(estimate - 1.96 * std.error), 
+    ci_upper = exp(estimate + 1.96 * std.error)
+  ) |>
+  select(city_state,OR,ci_lower,ci_upper)
+
+city_models |>
+  knitr::kable(digits = 3)
+
+```
+## Plot that shows the estimated ORs and CIs for each city
+```{r}
+or_results = city_models |> 
+  arrange(OR) |>  
+  mutate(city_state = factor(city_state, levels = city_state)) 
+
+or_plot <- ggplot(or_results, aes(x = city_state, y = OR)) +
+  geom_point(size = 3) +  
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper)) +  
+  coord_flip() + 
+  labs(
+    title = "Estimated Odds Ratios and Confidence Intervals by City",
+    x = "City",
+    y = "Odds Ratio (Male vs Female Victims)"
+  ) +
+  theme_minimal(base_size = 14)
+
+or_plot
+```
+# Problem3
+## Import and clean data
+```{r}
+bw_data=read_csv("../birthweight.csv") |>
+  janitor::clean_names() |>
+  mutate(
+    babysex = factor(babysex,levels=c(1,2),labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),
+    malform = factor(malform, labels = c("Absent", "Present")),
+    smoken = factor(ifelse(smoken == 0, "Non-smoker", "Smoker"),
+                    levels = c("Non-smoker", "Smoker")),
+    parity = factor(parity),  
+    pnumlbw = factor(pnumlbw),
+    pnumsga = factor(pnumsga)
+  )
+```
+## Regression model for birthweight
+```{r}
+numeric_vars <- bw_data |>
+  select(where(is.numeric)) 
+
+cor_matrix <- numeric_vars |>
+  cor(use = "complete.obs") 
+
+cor_with_bwt <- cor_matrix |>
+  as.data.frame() |>
+  rownames_to_column(var = "Variable") |>
+  pivot_longer(-Variable, names_to = "Target", values_to = "Correlation") |>
+  filter(Target == "bwt" & Variable != "bwt") |>
+  arrange(desc(abs(Correlation))) 
+
+cor_with_bwt
+
+```
+From the table, we selected the numeric variables bhead, blength, gaweeks, and delwt, as they have the highest correlations with birthweight.
+```{r}
+bw_model <- lm(bwt ~ bhead + blength + gaweeks
+               + delwt, data = bw_data)
+
+summary(bw_model)
+
+
+data_with_preds_resids = bw_data |>
+  modelr::add_predictions(bw_model) |>
+  modelr::add_residuals(bw_model)
+
+ggplot(data_with_preds_resids, aes(x = pred, y = resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted values", y = "Residuals", title = "Residuals vs Fitted values plot")
+```
+## Compare models
+```{r}
+cv_df =
+  crossv_mc(bw_data, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+cv_model_error = 
+  cv_df |>
+  mutate(
+    model11  = map(train, ~lm(bwt ~ bhead + blength + gaweeks
+                              + delwt, 
+                           data = .x)),
+    model12  = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model13  = map(train, ~lm(bwt ~ blength + bhead  + babysex + 
+                             bhead*blength + bhead*babysex + blength*babysex + 
+                             bhead*blength*babysex, data = .x))
+  ) |>
+  mutate(
+    rmse_model11 = map2_dbl(model11, test, ~rmse(model = .x, data = .y)),
+    rmse_model12 = map2_dbl(model12, test, ~rmse(model = .x, data = .y)),
+    rmse_model13 = map2_dbl(model13, test, ~rmse(model = .x, data = .y))
+  )
+
+
+
+cv_model_error |>
+  dplyr::select(starts_with("rmse")) |>
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_") |>
+  mutate(model = fct_inorder(model)) |>
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  theme_minimal() +
+  labs(title = "Comparison of Root Model Prediction Error (RMSE)", 
+       y = "Root Mean Squared Error")
+
+```
+
