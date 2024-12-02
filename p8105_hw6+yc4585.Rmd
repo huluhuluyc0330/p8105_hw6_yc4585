@@ -17,7 +17,7 @@ library(modelr)
 
 # Problem2
 ## Import and clean data
-```{r}
+```{r message=FALSE}
 omit_cities <- c("Dallas, TX", "Phoenix, AZ", 
                  "Kansas City, MO", "Tulsa, AL")
 
@@ -25,12 +25,11 @@ omit_cities <- c("Dallas, TX", "Phoenix, AZ",
 homi_data <- read_csv("../homicide-data.csv",na = c("", "NA", "Unknown")) |> 
   mutate(
     city_state = paste(city, state, sep = ", "),
-    victim_age = as.numeric(victim_age), ##how to deal with NA
+    victim_age = as.numeric(victim_age), 
     solved = case_when(
-      str_detect(disposition, "Closed by arrest") ~ 1,  # Case solved by arrest
-      str_detect(disposition, "Closed without arrest") ~ 1,  # Case solved without arrest
-      str_detect(disposition, "Open/No arrest") ~ 0,  # Case unsolved
-      TRUE ~ NA_real_  # Handle cases with NA or unexpected disposition values
+      str_detect(disposition, "Closed by arrest") ~ 1,  
+      str_detect(disposition, "Closed without arrest") ~ 1,  
+      str_detect(disposition, "Open/No arrest") ~ 0
     )
   ) |> 
   filter(
@@ -91,7 +90,7 @@ city_models |>
 
 ```
 ## Plot that shows the estimated ORs and CIs for each city
-```{r}
+```{r height=10,width=12}
 or_results = city_models |> 
   arrange(OR) |>  
   mutate(city_state = factor(city_state, levels = city_state)) 
@@ -109,9 +108,13 @@ or_plot <- ggplot(or_results, aes(x = city_state, y = OR)) +
 
 or_plot
 ```
+
+From the plot, we can see that overall, the OR is less than 1, indicating that male victims are less likely to have their cases solved. However, in Fresno, Minneapolis, and Stockton, male victim cases are more likely to be solved, although their confidence intervals are relatively large, suggesting that the estimates may not be very precise.
+
 # Problem3
+
 ## Import and clean data
-```{r}
+```{r message=FALSE}
 bw_data=read_csv("../birthweight.csv") |>
   janitor::clean_names() |>
   mutate(
@@ -146,7 +149,7 @@ cor_with_bwt <- cor_matrix |>
 cor_with_bwt
 
 ```
-From the table, we selected the numeric variables bhead, blength, gaweeks, and delwt, as they have the highest correlations with birthweight.
+
 ```{r}
 bw_model <- lm(bwt ~ bhead + blength + gaweeks
                + delwt, data = bw_data)
@@ -163,10 +166,12 @@ ggplot(data_with_preds_resids, aes(x = pred, y = resid)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
   labs(x = "Fitted values", y = "Residuals", title = "Residuals vs Fitted values plot")
 ```
+First select the numeric variables from the dataset. Then, I calculate the correlation matrix for these numeric variables to examine the relationships between them. After identifying the variables that show a strong correlation with birth weight (bwt), choose the most relevant ones to build the model. In this case,I use the variables head circumference (bhead), birth length (blength), gestational weeks (gaweeks), and delivered weight (delwt) to form the linear regression model.
+
 ## Compare models
 ```{r}
 cv_df =
-  crossv_mc(bw_data, 100) %>% 
+  crossv_mc(bw_data, 100) |>
   mutate(
     train = map(train, as_tibble),
     test = map(test, as_tibble))
@@ -205,4 +210,4 @@ cv_model_error |>
        y = "Root Mean Squared Error")
 
 ```
-
+We can see that my model has a relatively smaller RMSE, indicating better predictive accuracy compared to other models.
