@@ -28,23 +28,23 @@ homi_data <- read_csv("../homicide-data.csv",na = c("", "NA", "Unknown")) |>
     victim_age = as.numeric(victim_age), 
     solved = case_when(
       str_detect(disposition, "Closed by arrest") ~ 1,  
-      str_detect(disposition, "Closed without arrest") ~ 1,  
+      str_detect(disposition, "Closed without arrest") ~ 0,  
       str_detect(disposition, "Open/No arrest") ~ 0
     )
   ) |> 
   filter(
     !city_state %in% c("Dallas, TX", "Phoenix, AZ",
                        "Kansas City, MO", "Tulsa, AL"),
-    victim_race %in% c("White", "Black"),
-
-  )
+    victim_race %in% c("White", "Black")
+  ) |>
+  filter(!is.na(victim_age))
 ```
 ## Logistic regression
 ```{r}
-md_data <- homi_data |> 
+md_data = homi_data |> 
   filter(city_state == "Baltimore, MD")
 
-model <- glm(
+model = glm(
   solved ~ victim_age + victim_sex + victim_race,
   data = md_data,
   family = binomial
@@ -66,7 +66,7 @@ print(male_vs_female)
 ```
 ## Log regression for each city
 ```{r}
-city_models <- homi_data |> 
+city_models = homi_data |> 
   nest(data=-city_state) |> 
   mutate(
     model = map(data, ~ glm(
@@ -109,7 +109,8 @@ or_plot <- ggplot(or_results, aes(x = city_state, y = OR)) +
 or_plot
 ```
 
-From the plot, we can see that overall, the OR is less than 1, indicating that male victims are less likely to have their cases solved. However, in Fresno, Minneapolis, and Stockton, male victim cases are more likely to be solved, although their confidence intervals are relatively large, suggesting that the estimates may not be very precise.
+An odds ratio of 1 indicates that cases of male or female victims are equally likely to be solved. An OR greater than 1 suggests that male victims are more likely to have their cases solved. From the plot, we observe that overall, the OR is less than 1, indicating that male victims are generally less likely to have their cases solved. However, in Albuquerque, Fresno, and Stockton, cases involving male victims show a higher likelihood of being solved. Nonetheless, the confidence intervals for these locations are relatively wide, implying that the estimates may lack precision.
+
 
 # Problem3
 
@@ -130,7 +131,11 @@ bw_data=read_csv("../birthweight.csv") |>
     pnumlbw = factor(pnumlbw),
     pnumsga = factor(pnumsga)
   )
+
+colSums(is.na(bw_data))
 ```
+There is no missing data in the dataset
+
 ## Regression model for birthweight
 ```{r}
 numeric_vars <- bw_data |>
@@ -166,7 +171,10 @@ ggplot(data_with_preds_resids, aes(x = pred, y = resid)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
   labs(x = "Fitted values", y = "Residuals", title = "Residuals vs Fitted values plot")
 ```
-First select the numeric variables from the dataset. Then, I calculate the correlation matrix for these numeric variables to examine the relationships between them. After identifying the variables that show a strong correlation with birth weight (bwt), choose the most relevant ones to build the model. In this case,I use the variables head circumference (bhead), birth length (blength), gestational weeks (gaweeks), and delivered weight (delwt) to form the linear regression model.
+
+I first select the numeric variables from the dataset. Then, I calculate the correlation matrix for these numeric variables to examine the relationships between them. After identifying the variables that show a strong correlation with birth weight (bwt), choose the most relevant ones to build the model. In this case,I use the variables head circumference (bhead), birth length (blength), gestational weeks (gaweeks), and delivered weight (delwt) to form the linear regression model.
+
+In the plot of model residuals against fitted values, most of the residuals are symmetrically and evenly distributed around 0, which indicates homoscedasticity and suggests that the model fits the data well.
 
 ## Compare models
 ```{r}
@@ -210,4 +218,6 @@ cv_model_error |>
        y = "Root Mean Squared Error")
 
 ```
+
+
 We can see that my model has a relatively smaller RMSE, indicating better predictive accuracy compared to other models.
